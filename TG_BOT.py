@@ -5,7 +5,7 @@ from PIL import Image
 import requests
 from api import api_joke, api_cat, api_dog
 
-bot = telebot.TeleBot('7186196732:AAES3EonhBuBGH1KLFYsn5437respb4YhOI')
+bot = telebot.TeleBot('TG_BOT')
 
 
 @bot.message_handler(commands=['start'])
