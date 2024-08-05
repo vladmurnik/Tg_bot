@@ -4,14 +4,38 @@ from io import BytesIO
 from PIL import Image
 import requests
 from api import api_joke, api_cat, api_dog
+import math
+import fal_client
+import os
 
 bot = telebot.TeleBot('TG_BOT')
-
+os.environ['FAL_KEY'] = "FAL_KEY"
 
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.send_message(message.chat.id, message.from_user.first_name)
 
+@bot.message_handler(commands=['rev'])
+def reverse(message):
+    set_mes = list(message.text[4::])
+    rev_mes = ''
+    set_mes.reverse()
+    for i in set_mes:
+        rev_mes += i
+    bot.send_message(message.chat.id, rev_mes)
+
+@bot.message_handler(commands=['gen'])
+def gen_img(message):
+    text = message.text[5::]
+    handler = fal_client.submit(
+        "fal-ai/flux-pro",
+        arguments={
+            "prompt": text,
+        },
+    )
+
+    result = handler.get()
+    bot.send_photo(message.chat.id, result['images'][0]['url'])
 
 @bot.message_handler(commands=['cat'])
 def cat(message):
@@ -51,8 +75,9 @@ def info(message):
                                       ' last_name \n \n'
                                       ' username \n \n'
                                       ' is_premium \n \n'
-                                      ' /info_api \n Комманды с API \n')
-
+                                      ' /info_api \n Комманды с API \n\n'
+                                      ' /gen + text \n Генерирует изображения по тексту\n\n'
+                                      ' /rev \n Разворачивает текст')
 
 @bot.message_handler(commands=['info_api'])
 def info_api(message):
@@ -60,7 +85,7 @@ def info_api(message):
                      ' /dog фото собак \n (вы можете получить несколько фото \n если введёте число после команды) \n \n'
                      ' /cat фото кошек \n (вы можете получить несколько фото \n если введёте число после команды) \n \n'
                      ' /lol прикол \n (попробуйте если хотите) \n\n'
-                     ' /joke_info \n')
+                     ' /info_joke \n')
 @bot.message_handler(commands=['info_joke'])
 def info_joke(message):
     bot.send_message(message.chat.id,'/joke и цифра согласно таблице: \n'
@@ -95,10 +120,12 @@ def info_user(message):
 
     elif message.text.lower() == 'is_premium':
         if message.from_user.is_premium is None:
+            lol(message)
             bot.send_message(message.chat.id, f'{message.from_user.is_premium} \n Хаххахах нищеброт')
 
         else:
             bot.send_message(message.chat.id, f'{message.from_user.is_premium} \n Тебе совсем некуда деньги девать?')
+
 
 
 @bot.message_handler(content_types=['photo'])
@@ -112,15 +139,17 @@ def handle_photo(message):
         # Загружаем файл фотографии
         response = requests.get(file_url)
         img = Image.open(BytesIO(response.content))
-        # Сохраняем фотографии
+
+        # Сохраняем фотографию
         image_name = f"new{message.from_user.username}_{random.randint(1, 1000000000)}.jpg"
         img.save(f'img/{image_name}')
 
         # Конвертируем в градации серого
         img = img.convert('L')
 
-        # Изменяем размер изображения
-        width = 100
+        # Устанавливаем начальную ширину и рассчитываем высоту
+        max_chars = 4096
+        width = 1000
         aspect_ratio = img.height / img.width
         new_height = int(aspect_ratio * width * 0.55)
         img = img.resize((width, new_height))
@@ -130,21 +159,31 @@ def handle_photo(message):
         chars = ["@", "#", "B", "%", "M", "W", "&", "8", "*", "o", "a", "h", "k", "b", "d", "p", "q", "w", "m",
                  "Z", "O", "0", "Q", "L", "C", "J", "U", "Y", "X", "z", "c", "v", "u", "n", "x", "r", "j", "f",
                  "t", "/", r"\\", "|", "(", ")", "1", "{", "}", "[", "]", "?", "-", "_", "+", "~", "<", ">", "i",
-                 "!", "l", "I", ";", ":", ",", r"\"", "^", "`", "'", ".", " "]
-        ascii_str = "".join([chars[pixel // 4] for pixel in pixels])
+                 "!", "l", "I", ";", ":", ",", "", "^", "`", "'", ".", " "]
 
-        # Форматируем строку ASCII
+        ascii_str = "".join([chars[pixel // 4] for pixel in pixels])
         ascii_img = "\n".join([ascii_str[index: index + width] for index in range(0, len(ascii_str), width)])
 
-        # Отправляем ASCII изображение
+        # Проверяем длину ASCII изображения и уменьшаем размер, если необходимо
         if len(f'```\n{ascii_img}\n```') > 4096:
-            for i in range(0, round(len(f'```\n{ascii_img}\n```') / 4096) + 1):
-                bot.send_message(message.chat.id, f'```\n{ascii_img[i * 4097:i + 4096 * (i + 1)]}\n```',
-                                 parse_mode='Markdown')
-        else:
-            bot.send_message(message.chat.id, f'```\n{ascii_img}\n```', parse_mode='Markdown')
+            index = len(f'```\n{ascii_img}\n```') / 4096
+            width = round(round(len(f'```\n{ascii_img}\n```')/math.floor(index))/4.096)
+        while len(f'```\n{ascii_img}\n```') > max_chars:
+            width -= 10
+            new_height = int(aspect_ratio * width * 0.55)
+            img = img.resize((width, new_height))
+            pixels = img.getdata()
+            ascii_str = "".join([chars[pixel // 4] for pixel in pixels])
+            ascii_img = "\n".join([ascii_str[index: index + width] for index in range(0, len(ascii_str), width)])
+
+        # Отправляем ASCII изображение
+        bot.send_message(message.chat.id, f'```\n{ascii_img}\n```', parse_mode='Markdown')
+
     except Exception as e:
         bot.send_message(message.chat.id, f'Произошла ошибка при обработке изображения: {e}')
+
+
+
 
 
 bot.polling(none_stop=True)
